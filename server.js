@@ -16,10 +16,18 @@ const { startPriceChecker } = require('./services/priceChecker');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const allowedOrigins = ['http://cryptotrackeralerts.net', 'https://cryptotrackeralerts.net'];
+
 // Middleware
 app.use(cors({
-  origin: 'http://cryptotrackeralerts.net/', // Replace with your actual frontend domain
-  credentials: true
+  origin: function (origin, callback) {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
 }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
