@@ -18,7 +18,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors({
-  origin: 'https://http://cryptotrackeralerts.net/', // Replace with your actual frontend domain
+  origin: 'http://cryptotrackeralerts.net/', // Replace with your actual frontend domain
   credentials: true
 }));
 app.use(express.json());
