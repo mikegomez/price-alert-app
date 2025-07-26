@@ -6,7 +6,7 @@ const { getCryptoPrice } = require('../services/priceChecker');
 const router = express.Router();
 
 // Get user's portfolio with current values
-router.get('https://price-alert-app-xx8m.onrender.com/', verifyToken, async (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const portfolio = await dbHelpers.getUserPortfolio(userId);
@@ -211,7 +211,7 @@ router.post('/sell/:id', verifyToken, async (req, res) => {
 });
 
 // Get portfolio performance over time
-router.get('https://price-alert-app-xx8m.onrender.com/performance', verifyToken, async (req, res) => {
+router.get('/performance', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const days = Math.min(parseInt(req.query.days) || 30, 365);
@@ -281,7 +281,7 @@ router.get('https://price-alert-app-xx8m.onrender.com/performance', verifyToken,
 });
 
 // Get trading history
-router.get('https://price-alert-app-xx8m.onrender.com/history', verifyToken, async (req, res) => {
+router.get('/history', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
