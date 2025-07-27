@@ -1,187 +1,202 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
+const mysql = require('mysql2/promise');
 
-// Create database connection
-const dbPath = path.join(__dirname, 'alerts.db');
-const db = new sqlite3.Database(dbPath);
+const pool = mysql.createPool({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASSWORD,
+  database: process.env.DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
 // Initialize database tables
-const initializeDB = () => {
-  return new Promise((resolve, reject) => {
-    db.serialize(() => {
-      // Users table
-      db.run(`
-        CREATE TABLE IF NOT EXISTS users (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          email TEXT UNIQUE NOT NULL,
-          password_hash TEXT NOT NULL,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `);
+const initializeDB = async () => {
+  const connection = await pool.getConnection();
+  
+  try {
+    // Users table
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        email VARCHAR(255) UNIQUE NOT NULL,
+        password_hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
 
-      // Price alerts table
-      db.run(`
-        CREATE TABLE IF NOT EXISTS price_alerts (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER,
-          symbol TEXT NOT NULL,
-          target_price DECIMAL(10,2) NOT NULL,
-          alert_type TEXT NOT NULL, -- 'above' or 'below'
-          is_active BOOLEAN DEFAULT 1,
-          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-          triggered_at DATETIME,
-          FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-      `);
+    // Price alerts table
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS price_alerts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
+        symbol VARCHAR(10) NOT NULL,
+        target_price DECIMAL(10,2) NOT NULL,
+        alert_type ENUM('above', 'below') NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        triggered_at TIMESTAMP NULL,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )
+    `);
 
-      // Paper trading portfolio table
-      db.run(`
-        CREATE TABLE IF NOT EXISTS portfolio (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          user_id INTEGER,
-          symbol TEXT NOT NULL,
-          shares INTEGER NOT NULL,
-          purchase_price DECIMAL(10,2) NOT NULL,
-          purchase_date DATETIME DEFAULT CURRENT_TIMESTAMP,
-          is_sold BOOLEAN DEFAULT 0,
-          sold_price DECIMAL(10,2),
-          sold_date DATETIME,
-          FOREIGN KEY (user_id) REFERENCES users (id)
-        )
-      `);
+    // Paper trading portfolio table
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS portfolio (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT,
+        symbol VARCHAR(10) NOT NULL,
+        shares INT NOT NULL,
+        purchase_price DECIMAL(10,2) NOT NULL,
+        purchase_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        is_sold BOOLEAN DEFAULT FALSE,
+        sold_price DECIMAL(10,2) NULL,
+        sold_date TIMESTAMP NULL,
+        FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
+      )
+    `);
 
-      // Stock prices cache table
-      db.run(`
-        CREATE TABLE IF NOT EXISTS stock_prices (
-          symbol TEXT PRIMARY KEY,
-          price DECIMAL(10,2) NOT NULL,
-          last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
-        )
-      `, (err) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
-  });
+    // Stock prices cache table
+    await connection.execute(`
+      CREATE TABLE IF NOT EXISTS stock_prices (
+        symbol VARCHAR(10) PRIMARY KEY,
+        price DECIMAL(10,2) NOT NULL,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      )
+    `);
+
+    console.log('Database tables initialized successfully');
+  } catch (error) {
+    console.error('Error initializing database:', error);
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 // Helper functions for database operations
 const dbHelpers = {
   // Get user by email
-  getUserByEmail: (email) => {
-    return new Promise((resolve, reject) => {
-      db.get('SELECT * FROM users WHERE email = ?', [email], (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+  getUserByEmail: async (email) => {
+    const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+    return rows[0] || null;
   },
 
   // Create new user
-  createUser: (email, passwordHash) => {
-    return new Promise((resolve, reject) => {
-      db.run('INSERT INTO users (email, password_hash) VALUES (?, ?)', 
-        [email, passwordHash], function(err) {
-          if (err) reject(err);
-          else resolve(this.lastID);
-        });
-    });
+  createUser: async (email, passwordHash) => {
+    const [result] = await pool.execute(
+      'INSERT INTO users (email, password_hash) VALUES (?, ?)', 
+      [email, passwordHash]
+    );
+    return result.insertId;
   },
 
   // Get user alerts
-  getUserAlerts: (userId) => {
-    return new Promise((resolve, reject) => {
-      db.all('SELECT * FROM price_alerts WHERE user_id = ? AND is_active = 1', 
-        [userId], (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows);
-        });
-    });
+  getUserAlerts: async (userId) => {
+    const [rows] = await pool.execute(
+      'SELECT * FROM price_alerts WHERE user_id = ? AND is_active = TRUE', 
+      [userId]
+    );
+    return rows;
   },
 
   // Create price alert
-  createAlert: (userId, symbol, targetPrice, alertType) => {
-    return new Promise((resolve, reject) => {
-      db.run(`INSERT INTO price_alerts (user_id, symbol, target_price, alert_type) 
-              VALUES (?, ?, ?, ?)`, 
-        [userId, symbol, targetPrice, alertType], function(err) {
-          if (err) reject(err);
-          else resolve(this.lastID);
-        });
-    });
+  createAlert: async (userId, symbol, targetPrice, alertType) => {
+    const [result] = await pool.execute(
+      'INSERT INTO price_alerts (user_id, symbol, target_price, alert_type) VALUES (?, ?, ?, ?)', 
+      [userId, symbol, targetPrice, alertType]
+    );
+    return result.insertId;
   },
 
   // Get all active alerts
-  getAllActiveAlerts: () => {
-    return new Promise((resolve, reject) => {
-      db.all(`SELECT pa.*, u.email 
-              FROM price_alerts pa 
-              JOIN users u ON pa.user_id = u.id 
-              WHERE pa.is_active = 1`, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
+  getAllActiveAlerts: async () => {
+    const [rows] = await pool.execute(`
+      SELECT pa.*, u.email 
+      FROM price_alerts pa 
+      JOIN users u ON pa.user_id = u.id 
+      WHERE pa.is_active = TRUE
+    `);
+    return rows;
   },
 
   // Trigger alert
-  triggerAlert: (alertId) => {
-    return new Promise((resolve, reject) => {
-      db.run(`UPDATE price_alerts 
-              SET is_active = 0, triggered_at = CURRENT_TIMESTAMP 
-              WHERE id = ?`, [alertId], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+  triggerAlert: async (alertId) => {
+    await pool.execute(
+      'UPDATE price_alerts SET is_active = FALSE, triggered_at = NOW() WHERE id = ?', 
+      [alertId]
+    );
   },
 
   // Get user portfolio
-  getUserPortfolio: (userId) => {
-    return new Promise((resolve, reject) => {
-      db.all('SELECT * FROM portfolio WHERE user_id = ?', [userId], (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
+  getUserPortfolio: async (userId) => {
+    const [rows] = await pool.execute('SELECT * FROM portfolio WHERE user_id = ?', [userId]);
+    return rows;
   },
 
   // Add to portfolio
-  addToPortfolio: (userId, symbol, shares, purchasePrice) => {
-    return new Promise((resolve, reject) => {
-      db.run(`INSERT INTO portfolio (user_id, symbol, shares, purchase_price) 
-              VALUES (?, ?, ?, ?)`, 
-        [userId, symbol, shares, purchasePrice], function(err) {
-          if (err) reject(err);
-          else resolve(this.lastID);
-        });
-    });
+  addToPortfolio: async (userId, symbol, shares, purchasePrice) => {
+    const [result] = await pool.execute(
+      'INSERT INTO portfolio (user_id, symbol, shares, purchase_price) VALUES (?, ?, ?, ?)', 
+      [userId, symbol, shares, purchasePrice]
+    );
+    return result.insertId;
+  },
+
+  // Sell from portfolio
+  sellFromPortfolio: async (portfolioId, soldPrice) => {
+    await pool.execute(
+      'UPDATE portfolio SET is_sold = TRUE, sold_price = ?, sold_date = NOW() WHERE id = ?',
+      [soldPrice, portfolioId]
+    );
   },
 
   // Update stock price
-  updateStockPrice: (symbol, price) => {
-    return new Promise((resolve, reject) => {
-      db.run(`INSERT OR REPLACE INTO stock_prices (symbol, price, last_updated) 
-              VALUES (?, ?, CURRENT_TIMESTAMP)`, 
-        [symbol, price], (err) => {
-          if (err) reject(err);
-          else resolve();
-        });
-    });
+  updateStockPrice: async (symbol, price) => {
+    await pool.execute(
+      'INSERT INTO stock_prices (symbol, price) VALUES (?, ?) ON DUPLICATE KEY UPDATE price = ?, last_updated = NOW()', 
+      [symbol, price, price]
+    );
   },
 
   // Get stock price
-  getStockPrice: (symbol) => {
-    return new Promise((resolve, reject) => {
-      db.get('SELECT * FROM stock_prices WHERE symbol = ?', [symbol], (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+  getStockPrice: async (symbol) => {
+    const [rows] = await pool.execute('SELECT * FROM stock_prices WHERE symbol = ?', [symbol]);
+    return rows[0] || null;
+  },
+
+  // Get multiple stock prices
+  getStockPrices: async (symbols) => {
+    if (!symbols || symbols.length === 0) return [];
+    const placeholders = symbols.map(() => '?').join(',');
+    const [rows] = await pool.execute(
+      `SELECT * FROM stock_prices WHERE symbol IN (${placeholders})`, 
+      symbols
+    );
+    return rows;
+  },
+
+  // Delete alert
+  deleteAlert: async (alertId, userId) => {
+    const [result] = await pool.execute(
+      'DELETE FROM price_alerts WHERE id = ? AND user_id = ?', 
+      [alertId, userId]
+    );
+    return result.affectedRows > 0;
+  },
+
+  // Get user by ID
+  getUserById: async (userId) => {
+    const [rows] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
+    return rows[0] || null;
   }
 };
 
-module.exports = { db, initializeDB, dbHelpers };
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('Closing MySQL connection pool...');
+  await pool.end();
+  process.exit(0);
+});
+
+module.exports = { pool, initializeDB, dbHelpers };
