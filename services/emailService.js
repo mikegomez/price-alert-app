@@ -1,38 +1,22 @@
 const nodemailer = require('nodemailer');
 
-// Email configuration
+// Replace with your actual mail credentials and host
 const transporter = nodemailer.createTransport({
-  service: 'gmail', // or your preferred email service
+  host: 'mail.cryptotrackeralerts.net', // or use mail.yourdomain.com
+  port: 465, // use 587 for STARTTLS or 465 for SSL
+  secure: true, // true if port is 465
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS // Use app-specific password for Gmail
+    user: process.env.EMAIL_USER, // e.g., noreply@cryptotrackeralerts.net
+    pass: process.env.EMAIL_PASS  // your mailbox password from GreenGeeks
   }
 });
 
-// For development, use Ethereal (fake SMTP)
-const createTestAccount = async () => {
-  if (process.env.NODE_ENV === 'development') {
-    const testAccount = await nodemailer.createTestAccount();
-    return nodemailer.createTransport({
-      host: 'smtp.ethereal.email',
-      port: 587,
-      secure: false,
-      auth: {
-        user: testAccount.user,
-        pass: testAccount.pass
-      }
-    });
-  }
-  return transporter;
-};
+// Use same for both production and development now
+const getTransporter = async () => transporter;
 
-// Send price alert email
 const sendAlertEmail = async (email, symbol, currentPrice, targetPrice, alertType) => {
   try {
-    const testTransporter = await createTestAccount();
-    
     const subject = `Price Alert: ${symbol} ${alertType} $${targetPrice}`;
-    
     const htmlContent = `
       <h2>Price Alert Triggered!</h2>
       <p><strong>${symbol}</strong> has reached your target price.</p>
@@ -42,58 +26,43 @@ const sendAlertEmail = async (email, symbol, currentPrice, targetPrice, alertTyp
         <li>Alert Type: <strong>${alertType}</strong></li>
         <li>Time: <strong>${new Date().toLocaleString()}</strong></li>
       </ul>
-      <p>This is an automated alert from your Price Alert System.</p>
     `;
 
     const mailOptions = {
-      from: process.env.EMAIL_USER || 'alerts@pricetracker.com',
+      from: `"Crypto Tracker Alerts" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: subject,
+      subject,
       html: htmlContent
     };
 
-    const info = await testTransporter.sendMail(mailOptions);
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Preview URL:', nodemailer.getTestMessageUrl(info));
-    }
-    
-    console.log('Alert email sent successfully');
-  } catch (error) {
-    console.error('Error sending alert email:', error);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Alert email sent:', info.messageId);
+  } catch (err) {
+    console.error('Error sending alert email:', err);
   }
 };
 
-// Send welcome email
 const sendWelcomeEmail = async (email) => {
   try {
-    const testTransporter = await createTestAccount();
-    
     const mailOptions = {
-      from: process.env.EMAIL_USER || 'welcome@pricetracker.com',
+      from: `"Crypto Tracker Alerts" <${process.env.EMAIL_USER}>`,
       to: email,
-      subject: 'Welcome to Price Alert System!',
+      subject: 'Welcome to Crypto Tracker Alerts!',
       html: `
-        <h2>Welcome to Price Alert System!</h2>
+        <h2>Welcome!</h2>
         <p>Thank you for signing up. You can now:</p>
         <ul>
-          <li>Set price alerts for your favorite stocks</li>
-          <li>Track your paper trading portfolio</li>
-          <li>Monitor your investment performance</li>
+          <li>Set price alerts</li>
+          <li>Track your portfolio</li>
+          <li>Simulate your investments</li>
         </ul>
-        <p>Start by creating your first price alert!</p>
       `
     };
 
-    const info = await testTransporter.sendMail(mailOptions);
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Welcome email preview:', nodemailer.getTestMessageUrl(info));
-    }
-    
-    console.log('Welcome email sent successfully');
-  } catch (error) {
-    console.error('Error sending welcome email:', error);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Welcome email sent:', info.messageId);
+  } catch (err) {
+    console.error('Error sending welcome email:', err);
   }
 };
 
