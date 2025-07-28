@@ -5,16 +5,61 @@ const pool = mysql.createPool({
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
+  port: process.env.DB_PORT || 3306,
   waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0
+  connectionLimit: 5, // Lower limit for external hosting
+  queueLimit: 0,
+  acquireTimeout: 60000,
+  timeout: 60000,
+  reconnect: true,
+  charset: 'utf8mb4',
+  // SSL configuration for external connections
+  ssl: process.env.DB_SSL === 'true' ? {
+    rejectUnauthorized: false
+  } : false
 });
+
+// Test database connection with detailed error reporting
+const testConnection = async () => {
+  try {
+    console.log('Testing database connection...');
+    console.log(`Host: ${process.env.DB_HOST}`);
+    console.log(`User: ${process.env.DB_USER}`);
+    console.log(`Database: ${process.env.DB_NAME}`);
+    console.log(`Port: ${process.env.DB_PORT || 3306}`);
+    
+    const connection = await pool.getConnection();
+    console.log('✅ Database connection successful');
+    
+    // Test a simple query
+    const [rows] = await connection.execute('SELECT 1 as test');
+    console.log('✅ Database query test successful');
+    
+    connection.release();
+    return true;
+  } catch (error) {
+    console.error('❌ Database connection failed:');
+    console.error('Error code:', error.code);
+    console.error('Error message:', error.message);
+    console.error('Error details:', error);
+    return false;
+  }
+};
 
 // Initialize database tables
 const initializeDB = async () => {
+  // First test the connection
+  const connectionSuccess = await testConnection();
+  if (!connectionSuccess) {
+    console.error('Skipping database initialization due to connection failure');
+    return false;
+  }
+
   const connection = await pool.getConnection();
   
   try {
+    console.log('Initializing database tables...');
+
     // Users table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS users (
@@ -22,7 +67,7 @@ const initializeDB = async () => {
         email VARCHAR(255) UNIQUE NOT NULL,
         password_hash TEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
     // Price alerts table
@@ -30,14 +75,17 @@ const initializeDB = async () => {
       CREATE TABLE IF NOT EXISTS price_alerts (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT,
-        symbol VARCHAR(10) NOT NULL,
-        target_price DECIMAL(10,2) NOT NULL,
+        symbol VARCHAR(20) NOT NULL,
+        target_price DECIMAL(15,8) NOT NULL,
         alert_type ENUM('above', 'below') NOT NULL,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         triggered_at TIMESTAMP NULL,
+        INDEX idx_user_active (user_id, is_active),
+        INDEX idx_symbol (symbol),
+        INDEX idx_active (is_active),
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-      )
+      ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
     // Paper trading portfolio table
@@ -45,29 +93,33 @@ const initializeDB = async () => {
       CREATE TABLE IF NOT EXISTS portfolio (
         id INT AUTO_INCREMENT PRIMARY KEY,
         user_id INT,
-        symbol VARCHAR(10) NOT NULL,
-        shares INT NOT NULL,
-        purchase_price DECIMAL(10,2) NOT NULL,
+        symbol VARCHAR(20) NOT NULL,
+        shares DECIMAL(15,8) NOT NULL,
+        purchase_price DECIMAL(15,8) NOT NULL,
         purchase_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         is_sold BOOLEAN DEFAULT FALSE,
-        sold_price DECIMAL(10,2) NULL,
+        sold_price DECIMAL(15,8) NULL,
         sold_date TIMESTAMP NULL,
+        INDEX idx_user_symbol (user_id, symbol),
+        INDEX idx_user_active (user_id, is_sold),
         FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-      )
+      ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
     // Stock prices cache table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS stock_prices (
-        symbol VARCHAR(10) PRIMARY KEY,
-        price DECIMAL(10,2) NOT NULL,
-        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
+        symbol VARCHAR(20) PRIMARY KEY,
+        price DECIMAL(15,8) NOT NULL,
+        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_updated (last_updated)
+      ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    console.log('Database tables initialized successfully');
+    console.log('✅ Database tables initialized successfully');
+    return true;
   } catch (error) {
-    console.error('Error initializing database:', error);
+    console.error('❌ Error initializing database:', error);
     throw error;
   } finally {
     connection.release();
@@ -78,117 +130,194 @@ const initializeDB = async () => {
 const dbHelpers = {
   // Get user by email
   getUserByEmail: async (email) => {
-    const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
-    return rows[0] || null;
+    try {
+      const [rows] = await pool.execute('SELECT * FROM users WHERE email = ?', [email]);
+      return rows[0] || null;
+    } catch (error) {
+      console.error('Error getting user by email:', error);
+      throw error;
+    }
   },
 
   // Create new user
   createUser: async (email, passwordHash) => {
-    const [result] = await pool.execute(
-      'INSERT INTO users (email, password_hash) VALUES (?, ?)', 
-      [email, passwordHash]
-    );
-    return result.insertId;
+    try {
+      const [result] = await pool.execute(
+        'INSERT INTO users (email, password_hash) VALUES (?, ?)', 
+        [email, passwordHash]
+      );
+      return result.insertId;
+    } catch (error) {
+      console.error('Error creating user:', error);
+      throw error;
+    }
   },
 
   // Get user alerts
   getUserAlerts: async (userId) => {
-    const [rows] = await pool.execute(
-      'SELECT * FROM price_alerts WHERE user_id = ? AND is_active = TRUE', 
-      [userId]
-    );
-    return rows;
+    try {
+      const [rows] = await pool.execute(
+        'SELECT * FROM price_alerts WHERE user_id = ? AND is_active = TRUE ORDER BY created_at DESC', 
+        [userId]
+      );
+      return rows;
+    } catch (error) {
+      console.error('Error getting user alerts:', error);
+      throw error;
+    }
   },
 
   // Create price alert
   createAlert: async (userId, symbol, targetPrice, alertType) => {
-    const [result] = await pool.execute(
-      'INSERT INTO price_alerts (user_id, symbol, target_price, alert_type) VALUES (?, ?, ?, ?)', 
-      [userId, symbol, targetPrice, alertType]
-    );
-    return result.insertId;
+    try {
+      const [result] = await pool.execute(
+        'INSERT INTO price_alerts (user_id, symbol, target_price, alert_type) VALUES (?, ?, ?, ?)', 
+        [userId, symbol.toUpperCase(), parseFloat(targetPrice), alertType]
+      );
+      return result.insertId;
+    } catch (error) {
+      console.error('Error creating alert:', error);
+      throw error;
+    }
   },
 
   // Get all active alerts
   getAllActiveAlerts: async () => {
-    const [rows] = await pool.execute(`
-      SELECT pa.*, u.email 
-      FROM price_alerts pa 
-      JOIN users u ON pa.user_id = u.id 
-      WHERE pa.is_active = TRUE
-    `);
-    return rows;
+    try {
+      const [rows] = await pool.execute(`
+        SELECT pa.*, u.email 
+        FROM price_alerts pa 
+        JOIN users u ON pa.user_id = u.id 
+        WHERE pa.is_active = TRUE
+        ORDER BY pa.created_at ASC
+      `);
+      return rows;
+    } catch (error) {
+      console.error('Error getting active alerts:', error);
+      return []; // Return empty array on error to prevent app crash
+    }
   },
 
   // Trigger alert
   triggerAlert: async (alertId) => {
-    await pool.execute(
-      'UPDATE price_alerts SET is_active = FALSE, triggered_at = NOW() WHERE id = ?', 
-      [alertId]
-    );
+    try {
+      const [result] = await pool.execute(
+        'UPDATE price_alerts SET is_active = FALSE, triggered_at = NOW() WHERE id = ?', 
+        [alertId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error('Error triggering alert:', error);
+      throw error;
+    }
   },
 
   // Get user portfolio
   getUserPortfolio: async (userId) => {
-    const [rows] = await pool.execute('SELECT * FROM portfolio WHERE user_id = ?', [userId]);
-    return rows;
+    try {
+      const [rows] = await pool.execute(
+        'SELECT * FROM portfolio WHERE user_id = ? ORDER BY purchase_date DESC', 
+        [userId]
+      );
+      return rows;
+    } catch (error) {
+      console.error('Error getting user portfolio:', error);
+      throw error;
+    }
   },
 
   // Add to portfolio
   addToPortfolio: async (userId, symbol, shares, purchasePrice) => {
-    const [result] = await pool.execute(
-      'INSERT INTO portfolio (user_id, symbol, shares, purchase_price) VALUES (?, ?, ?, ?)', 
-      [userId, symbol, shares, purchasePrice]
-    );
-    return result.insertId;
+    try {
+      const [result] = await pool.execute(
+        'INSERT INTO portfolio (user_id, symbol, shares, purchase_price) VALUES (?, ?, ?, ?)', 
+        [userId, symbol.toUpperCase(), parseFloat(shares), parseFloat(purchasePrice)]
+      );
+      return result.insertId;
+    } catch (error) {
+      console.error('Error adding to portfolio:', error);
+      throw error;
+    }
   },
 
   // Sell from portfolio
   sellFromPortfolio: async (portfolioId, soldPrice) => {
-    await pool.execute(
-      'UPDATE portfolio SET is_sold = TRUE, sold_price = ?, sold_date = NOW() WHERE id = ?',
-      [soldPrice, portfolioId]
-    );
+    try {
+      const [result] = await pool.execute(
+        'UPDATE portfolio SET is_sold = TRUE, sold_price = ?, sold_date = NOW() WHERE id = ?',
+        [parseFloat(soldPrice), portfolioId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error('Error selling from portfolio:', error);
+      throw error;
+    }
   },
 
   // Update stock price
   updateStockPrice: async (symbol, price) => {
-    await pool.execute(
-      'INSERT INTO stock_prices (symbol, price) VALUES (?, ?) ON DUPLICATE KEY UPDATE price = ?, last_updated = NOW()', 
-      [symbol, price, price]
-    );
+    try {
+      await pool.execute(
+        'INSERT INTO stock_prices (symbol, price) VALUES (?, ?) ON DUPLICATE KEY UPDATE price = ?, last_updated = NOW()', 
+        [symbol.toUpperCase(), parseFloat(price), parseFloat(price)]
+      );
+    } catch (error) {
+      console.error('Error updating stock price:', error);
+      // Don't throw error for price updates to prevent app crashes
+    }
   },
 
   // Get stock price
   getStockPrice: async (symbol) => {
-    const [rows] = await pool.execute('SELECT * FROM stock_prices WHERE symbol = ?', [symbol]);
-    return rows[0] || null;
+    try {
+      const [rows] = await pool.execute('SELECT * FROM stock_prices WHERE symbol = ?', [symbol.toUpperCase()]);
+      return rows[0] || null;
+    } catch (error) {
+      console.error('Error getting stock price:', error);
+      return null;
+    }
   },
 
   // Get multiple stock prices
   getStockPrices: async (symbols) => {
     if (!symbols || symbols.length === 0) return [];
-    const placeholders = symbols.map(() => '?').join(',');
-    const [rows] = await pool.execute(
-      `SELECT * FROM stock_prices WHERE symbol IN (${placeholders})`, 
-      symbols
-    );
-    return rows;
+    try {
+      const upperSymbols = symbols.map(s => s.toUpperCase());
+      const placeholders = upperSymbols.map(() => '?').join(',');
+      const [rows] = await pool.execute(
+        `SELECT * FROM stock_prices WHERE symbol IN (${placeholders})`, 
+        upperSymbols
+      );
+      return rows;
+    } catch (error) {
+      console.error('Error getting stock prices:', error);
+      return [];
+    }
   },
 
   // Delete alert
   deleteAlert: async (alertId, userId) => {
-    const [result] = await pool.execute(
-      'DELETE FROM price_alerts WHERE id = ? AND user_id = ?', 
-      [alertId, userId]
-    );
-    return result.affectedRows > 0;
+    try {
+      const [result] = await pool.execute(
+        'DELETE FROM price_alerts WHERE id = ? AND user_id = ?', 
+        [alertId, userId]
+      );
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error('Error deleting alert:', error);
+      throw error;
+    }
   },
 
   // Get user by ID
   getUserById: async (userId) => {
-    const [rows] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
-    return rows[0] || null;
+    try {
+      const [rows] = await pool.execute('SELECT * FROM users WHERE id = ?', [userId]);
+      return rows[0] || null;
+    } catch (error) {
+      console.error('Error getting user by ID:', error);
+      throw error;
+    }
   }
 };
 
@@ -199,4 +328,10 @@ process.on('SIGINT', async () => {
   process.exit(0);
 });
 
-module.exports = { pool, initializeDB, dbHelpers };
+process.on('SIGTERM', async () => {
+  console.log('Closing MySQL connection pool...');
+  await pool.end();
+  process.exit(0);
+});
+
+module.exports = { pool, initializeDB, dbHelpers, testConnection };
