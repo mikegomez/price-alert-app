@@ -365,26 +365,26 @@ const getCryptoPrice = async (symbol) => {
     }
     
     // Return mock data for development or as last resort
-    console.log(`[getCryptoPrice] Returning mock data for ${symbol}`);
-    const mockPrices = {
-      'BTC': 65000 + Math.random() * 10000,
-      'ETH': 3500 + Math.random() * 1000,
-      'BNB': 600 + Math.random() * 100,
-      'ADA': 0.4 + Math.random() * 0.2,
-      'DOGE': 0.08 + Math.random() * 0.05,
-      'SOL': 160 + Math.random() * 40,
-      'XRP': 0.5 + Math.random() * 0.2
-    };
+//     console.log(`[getCryptoPrice] Returning mock data for ${symbol}`);
+//     const mockPrices = {
+//       'BTC': 65000 + Math.random() * 10000,
+//       'ETH': 3500 + Math.random() * 1000,
+//       'BNB': 600 + Math.random() * 100,
+//       'ADA': 0.4 + Math.random() * 0.2,
+//       'DOGE': 0.08 + Math.random() * 0.05,
+//       'SOL': 160 + Math.random() * 40,
+//       'XRP': 0.5 + Math.random() * 0.2
+//     };
     
-    const mockPrice = mockPrices[symbol.toUpperCase()] || (Math.random() * 100);
+//     const mockPrice = mockPrices[symbol.toUpperCase()] || (Math.random() * 100);
     
-    // Cache mock data too
-    priceCache.set(symbol.toUpperCase(), {
-      price: mockPrice,
-      timestamp: Date.now()
-    });
+//     // Cache mock data too
+//     priceCache.set(symbol.toUpperCase(), {
+//       price: mockPrice,
+//       timestamp: Date.now()
+//     });
     
-    return mockPrice;
+//     return mockPrice;
   }
 };
 
