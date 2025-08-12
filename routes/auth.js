@@ -5,7 +5,7 @@ const crypto = require('crypto'); // ADD THIS MISSING IMPORT
 const { dbHelpers } = require('../database/db');
 const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailService'); // ADD sendPasswordResetEmail
 
-const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'https://price-alert-app-xx8m.onrender.com';
+const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'https://cryptotrackeralerts.net/';
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
