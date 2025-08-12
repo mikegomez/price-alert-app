@@ -1,7 +1,7 @@
 const nodemailer = require('nodemailer');
  
 // Replace with your actual mail credentials and host
-const transporter = nodemailer.createTransporter({
+const transporter = nodemailer.createTransport({
   host: 'mail.cryptotrackeralerts.net', // or use mail.yourdomain.com
   port: 465, // use 587 for STARTTLS or 465 for SSL
   secure: true, // true if port is 465
