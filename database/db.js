@@ -76,6 +76,19 @@ const initializeDB = async () => {
       ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+// Password resets table
+     await connection.execute(`
+      CREATE TABLE IF NOT EXISTS password_resets (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        token_hash CHAR(64) NOT NULL, 
+        expires_at DATETIME NOT NULL,
+        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX (user_id),
+        INDEX (token_hash),
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+      `);
+
     // Price alerts table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS price_alerts (
@@ -132,6 +145,9 @@ const initializeDB = async () => {
   }
 };
 
+// Password reset helpers (MySQL-style pseudo-code)
+const crypto = require('crypto');
+
 // Helper functions for database operations
 const dbHelpers = {
   // Get user by email
@@ -144,6 +160,65 @@ const dbHelpers = {
       throw error;
     }
   },
+
+  // Password Reset Functions
+  createPasswordReset: async (userId, tokenHash, expiresAt) => {
+    try {
+      const sql = `INSERT INTO password_resets (user_id, token_hash, expires_at) VALUES (?, ?, ?)`;
+      const [result] = await pool.execute(sql, [userId, tokenHash, expiresAt]);
+      return result.insertId;
+    } catch (error) {
+      console.error('Error creating password reset:', error);
+      throw error;
+    }
+  },
+
+  getPasswordResetByHash: async (tokenHash) => {
+    try {
+      const sql = `SELECT * FROM password_resets WHERE token_hash = ? AND expires_at > NOW() LIMIT 1`;
+      const [rows] = await pool.execute(sql, [tokenHash]);
+      return rows[0] || null;
+    } catch (error) {
+      console.error('Error getting password reset by hash:', error);
+      throw error;
+    }
+  },
+
+  deletePasswordResetById: async (id) => {
+    try {
+      const sql = `DELETE FROM password_resets WHERE id = ?`;
+      const [result] = await pool.execute(sql, [id]);
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error('Error deleting password reset:', error);
+      throw error;
+    }
+  },
+
+  updateUserPasswordHash: async (userId, newHash) => {
+    try {
+      const sql = `UPDATE users SET password_hash = ? WHERE id = ?`;
+      const [result] = await pool.execute(sql, [newHash, userId]);
+      return result.affectedRows > 0;
+    } catch (error) {
+      console.error('Error updating user password hash:', error);
+      throw error;
+    }
+  },
+
+  // Clean up expired password reset tokens
+  cleanupExpiredResets: async () => {
+    try {
+      const [result] = await pool.execute(
+        'DELETE FROM password_resets WHERE expires_at < NOW()'
+      );
+      return result.affectedRows;
+    } catch (error) {
+      console.error('Error cleaning up expired resets:', error);
+      throw error;
+    }
+  },
+
 
   // Create new user
   createUser: async (email, passwordHash) => {
