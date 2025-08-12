@@ -76,19 +76,24 @@ const initializeDB = async () => {
       ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+// Check if password_resets table already exists
+const [tables] = await connection.execute("SHOW TABLES LIKE 'password_resets'");
+if (tables.length === 0) {
+// Only create if it doesn't exist
 // Password resets table
      await connection.execute(`
-      CREATE TABLE IF NOT EXISTS password_resets (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        user_id INT NOT NULL,
-        token_hash CHAR(64) NOT NULL, 
-        expires_at DATETIME NOT NULL,
-        created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        INDEX (user_id),
-        INDEX (token_hash),
-        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-      `);
-
+  CREATE TABLE IF NOT EXISTS password_resets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    token_hash CHAR(64) NOT NULL, 
+    expires_at DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX (user_id),
+    INDEX (token_hash),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  ) ENGINE=InnoDB CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+`);
+}
     // Price alerts table
     await connection.execute(`
       CREATE TABLE IF NOT EXISTS price_alerts (
