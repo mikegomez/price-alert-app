@@ -145,6 +145,18 @@ router.post('/resend-email', async (req, res) => {
   }
 });
 
+// GET /api/auth/test-email — temporary debug endpoint
+router.get('/test-email', async (req, res) => {
+  try {
+    const { sendPasswordResetEmail } = require('../services/emailService');
+    const testAddr = req.query.to || process.env.EMAIL_USER;
+    await sendPasswordResetEmail(testAddr, 'https://cryptotrackeralerts.net/login?token=test');
+    res.json({ success: true, message: `Test email sent to ${testAddr}` });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, code: err.code });
+  }
+});
+
 // POST /api/auth/forgot-password
 router.post('/forgot-password', async (req, res) => {
   try {

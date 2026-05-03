@@ -1,12 +1,15 @@
 const nodemailer = require('nodemailer');
  
 const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 587,
-  secure: false,
+  host: process.env.EMAIL_HOST || 'mail.cryptotrackeralerts.net',
+  port: parseInt(process.env.EMAIL_PORT) || 587,
+  secure: false, // STARTTLS on 587
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
+  },
+  tls: {
+    rejectUnauthorized: false // allow self-signed certs common on shared hosting
   }
 });
 
