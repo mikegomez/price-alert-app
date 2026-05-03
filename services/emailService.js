@@ -11,7 +11,15 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// Use same for both production and development now
+// Verify connection on startup so credential issues surface immediately in logs
+transporter.verify((err) => {
+  if (err) {
+    console.error('Email transporter failed to connect:', err.message);
+  } else {
+    console.log('Email transporter ready');
+  }
+});
+
 const getTransporter = async () => transporter;
 
 const sendAlertEmail = async (email, symbol, currentPrice, targetPrice, alertType) => {

@@ -243,27 +243,7 @@ const getCryptoPrice = async (symbol) => {
         }
       }
     } catch (dbError) {
-       console.error(`[getCryptoPrice] Error for ${symbol}:`, error.message);
-
-  // If rate limited, try older caches (DB up to 1h, then memory)
-  if (error.response?.status === 429) {
-    try {
-      const cachedPrice = await dbHelpers.getStockPrice(symbol.toUpperCase());
-      if (cachedPrice) {
-        const cacheAge = Date.now() - new Date(cachedPrice.last_updated).getTime();
-        if (cacheAge < 60 * 60 * 1000) { // accept up to 1 hour old
-          console.log(`[getCryptoPrice] Using older database cache: $${cachedPrice.price}`);
-          return Number(cachedPrice.price);
-        }
-      }
-    } catch (_) { /* ignore and continue */ }
-
-    const mem = priceCache.get(symbol.toUpperCase());
-    if (mem) {
-      console.log(`[getCryptoPrice] Using expired memory cache: $${mem.price}`);
-      return Number(mem.price);
-    }
-  }
+      console.log(`[getCryptoPrice] DB cache miss for ${symbol}: ${dbError.message}`);
     }
     
     // 2. Check in-memory cache
@@ -556,8 +536,21 @@ const checkPriceAlerts = async () => {
 const startPriceChecker = () => {
   // Run every 15 minutes to stay well within rate limits
   cron.schedule('*/15 * * * *', checkPriceAlerts);
-  
+
   console.log('Crypto price checker scheduled (every 15 minutes to respect rate limits)');
 };
 
-module.exports = { startPriceChecker, getCryptoPrice, checkPriceAlerts, getBatchPrices };
+// Ping own health endpoint every 14 minutes to prevent Render.com free tier cold starts
+const startKeepAlive = () => {
+  const url = process.env.RENDER_EXTERNAL_URL;
+  if (!url) return;
+
+  cron.schedule('*/14 * * * *', () => {
+    axios.get(`${url}/api/health`, { timeout: 10000 }).catch(() => {});
+    console.log('[KeepAlive] Pinged health endpoint');
+  });
+
+  console.log('Keep-alive service started (every 14 minutes)');
+};
+
+module.exports = { startPriceChecker, startKeepAlive, getCryptoPrice, checkPriceAlerts, getBatchPrices };

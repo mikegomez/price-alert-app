@@ -12,12 +12,17 @@ const portfolioRoutes = require('./routes/portfolio');
 const stockRoutes = require('./routes/stocks');
 
 // Import price checking service
-const { startPriceChecker } = require('./services/priceChecker');
+const { startPriceChecker, startKeepAlive } = require('./services/priceChecker');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-const allowedOrigins = ['http://cryptotrackeralerts.net', 'https://cryptotrackeralerts.net'];
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://cryptotrackeralerts.net',
+  'https://cryptotrackeralerts.net'
+];
 
 // Middleware
 app.use(cors({
@@ -67,6 +72,9 @@ const startServer = async () => {
     // Start price checking service
     startPriceChecker();
     console.log('Price checking service started');
+
+    // Prevent Render.com free tier cold starts
+    startKeepAlive();
     
     app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
