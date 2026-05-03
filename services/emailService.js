@@ -1,50 +1,27 @@
-const nodemailer = require('nodemailer');
- 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST || 'mail.cryptotrackeralerts.net',
-  port: parseInt(process.env.EMAIL_PORT) || 587,
-  secure: false, // STARTTLS on 587
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  },
-  tls: {
-    rejectUnauthorized: false // allow self-signed certs common on shared hosting
-  }
-});
+const { Resend } = require('resend');
 
-// Verify connection on startup so credential issues surface immediately in logs
-transporter.verify((err) => {
-  if (err) {
-    console.error('Email transporter failed to connect:', err.message);
-  } else {
-    console.log('Email transporter ready');
-  }
-});
-
-const getTransporter = async () => transporter;
+const resend = new Resend(process.env.RESEND_API_KEY);
+const FROM = `Crypto Tracker Alerts <${process.env.EMAIL_FROM || 'noreply@cryptotrackeralerts.net'}>`;
 
 const sendAlertEmail = async (email, symbol, currentPrice, targetPrice, alertType) => {
   try {
-    const subject = `Price Alert: ${symbol} ${alertType} $${targetPrice}`;
-    const htmlContent = `
-      <h2>Price Alert Triggered!</h2>
-      <p><strong>${symbol}</strong> has reached your target price.</p>
-      <ul>
-        <li>Current Price: <strong>$${currentPrice.toFixed(2)}</strong></li>
-        <li>Target Price: <strong>$${targetPrice}</strong></li>
-        <li>Alert Type: <strong>${alertType}</strong></li>
-        <li>Time: <strong>${new Date().toLocaleString()}</strong></li>
-      </ul>
-    `;
-    const mailOptions = {
-      from: `"Crypto Tracker Alerts" <${process.env.EMAIL_USER}>`,
+    const { error } = await resend.emails.send({
+      from: FROM,
       to: email,
-      subject,
-      html: htmlContent
-    };
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Alert email sent:', info.messageId);
+      subject: `Price Alert: ${symbol} ${alertType} $${targetPrice}`,
+      html: `
+        <h2>Price Alert Triggered!</h2>
+        <p><strong>${symbol}</strong> has reached your target price.</p>
+        <ul>
+          <li>Current Price: <strong>$${currentPrice.toFixed(2)}</strong></li>
+          <li>Target Price: <strong>$${targetPrice}</strong></li>
+          <li>Alert Type: <strong>${alertType}</strong></li>
+          <li>Time: <strong>${new Date().toLocaleString()}</strong></li>
+        </ul>
+      `,
+    });
+    if (error) throw new Error(error.message);
+    console.log('Alert email sent to', email);
   } catch (err) {
     console.error('Error sending alert email:', err);
   }
@@ -52,8 +29,8 @@ const sendAlertEmail = async (email, symbol, currentPrice, targetPrice, alertTyp
 
 const sendWelcomeEmail = async (email) => {
   try {
-    const mailOptions = {
-      from: `"Crypto Tracker Alerts" <${process.env.EMAIL_USER}>`,
+    const { error } = await resend.emails.send({
+      from: FROM,
       to: email,
       subject: 'Welcome to Crypto Tracker Alerts!',
       html: `
@@ -64,36 +41,35 @@ const sendWelcomeEmail = async (email) => {
           <li>Track your portfolio</li>
           <li>Simulate your investments</li>
         </ul>
-      `
-    };
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Welcome email sent:', info.messageId);
+      `,
+    });
+    if (error) throw new Error(error.message);
+    console.log('Welcome email sent to', email);
   } catch (err) {
     console.error('Error sending welcome email:', err);
   }
 };
 
 const sendPasswordResetEmail = async (email, resetUrl) => {
-  try {
-    const mailOptions = {
-      from: `"Crypto Tracker Alerts" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: 'Reset your Crypto Tracker Alerts password',
-      html: `
-        <h2>Password Reset Request</h2>
-        <p>We received a request to reset your password.</p>
-        <p><a href="${resetUrl}" style="background-color: #3B82F6; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Your Password</a></p>
-        <p>Or copy and paste this link: ${resetUrl}</p>
-        <p>If you didn't request this, you can safely ignore this email.</p>
-        <p>This link will expire in 1 hour.</p>
-      `,
-    };
-    const info = await transporter.sendMail(mailOptions);
-    console.log('Password reset email sent:', info.messageId);
-  } catch (err) {
-    console.error('Error sending password reset email:', err);
-    throw err; // Re-throw to handle in calling function
-  }
+  const { error } = await resend.emails.send({
+    from: FROM,
+    to: email,
+    subject: 'Reset your Crypto Tracker Alerts password',
+    html: `
+      <h2>Password Reset Request</h2>
+      <p>We received a request to reset your password.</p>
+      <p>
+        <a href="${resetUrl}" style="background-color:#3B82F6;color:white;padding:12px 24px;text-decoration:none;border-radius:5px;display:inline-block;">
+          Reset Your Password
+        </a>
+      </p>
+      <p>Or copy and paste this link: ${resetUrl}</p>
+      <p>If you didn't request this, you can safely ignore this email.</p>
+      <p>This link will expire in 1 hour.</p>
+    `,
+  });
+  if (error) throw new Error(error.message);
+  console.log('Password reset email sent to', email);
 };
 
 module.exports = { sendAlertEmail, sendWelcomeEmail, sendPasswordResetEmail };
