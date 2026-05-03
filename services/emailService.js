@@ -1,13 +1,12 @@
 const nodemailer = require('nodemailer');
  
-// Replace with your actual mail credentials and host
 const transporter = nodemailer.createTransport({
-  host: 'mail.cryptotrackeralerts.net', // or use mail.yourdomain.com
-  port: 465, // use 587 for STARTTLS or 465 for SSL
-  secure: true, // true if port is 465
+  host: 'smtp.gmail.com',
+  port: 587,
+  secure: false,
   auth: {
-    user: process.env.EMAIL_USER, // e.g., noreply@cryptotrackeralerts.net
-    pass: process.env.EMAIL_PASS  // your mailbox password from GreenGeeks
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS
   }
 });
 

@@ -342,14 +342,15 @@ const dbHelpers = {
 
   // Update stock price
   updateStockPrice: async (symbol, price) => {
+    const parsed = parseFloat(price);
+    if (!parsed || parsed <= 0) return; // never cache zero or invalid prices
     try {
       await pool.execute(
-        'INSERT INTO stock_prices (symbol, price) VALUES (?, ?) ON DUPLICATE KEY UPDATE price = ?, last_updated = NOW()', 
-        [symbol.toUpperCase(), parseFloat(price), parseFloat(price)]
+        'INSERT INTO stock_prices (symbol, price) VALUES (?, ?) ON DUPLICATE KEY UPDATE price = ?, last_updated = NOW()',
+        [symbol.toUpperCase(), parsed, parsed]
       );
     } catch (error) {
       console.error('Error updating stock price:', error);
-      // Don't throw error for price updates to prevent app crashes
     }
   },
 

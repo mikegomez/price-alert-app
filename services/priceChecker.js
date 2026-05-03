@@ -234,12 +234,12 @@ const getCryptoPrice = async (symbol) => {
     // 1. Check database cache first (most recent)
     try {
       const cachedPrice = await dbHelpers.getStockPrice(normalizedSymbol);
-      if (cachedPrice) {
+      if (cachedPrice && parseFloat(cachedPrice.price) > 0) {
         const cacheAge = Date.now() - new Date(cachedPrice.last_updated).getTime();
-        // Use cached price if less than 10 minutes old (increased from 5 minutes)
+        // Use cached price if less than 10 minutes old
         if (cacheAge < 10 * 60 * 1000) {
           console.log(`[getCryptoPrice] Using database cache for ${symbol}: $${cachedPrice.price} (${Math.floor(cacheAge / 1000)}s old)`);
-          return cachedPrice.price;
+          return parseFloat(cachedPrice.price);
         }
       }
     } catch (dbError) {

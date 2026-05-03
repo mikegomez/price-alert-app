@@ -15,10 +15,10 @@ router.get('/price/:symbol', async (req, res) => {
     // Check if we have recent cached price first
     const cachedPrice = await dbHelpers.getStockPrice(symbol.toUpperCase());
     
-    // If cached price is less than 5 minutes old, use it
-    if (cachedPrice) {
+    // If cached price is less than 5 minutes old and valid, use it
+    if (cachedPrice && parseFloat(cachedPrice.price) > 0) {
       const cacheAge = Date.now() - new Date(cachedPrice.last_updated).getTime();
-      if (cacheAge < 5 * 60 * 1000) { // 5 minutes
+      if (cacheAge < 5 * 60 * 1000) {
         return res.json({
           symbol: symbol.toUpperCase(),
           price: cachedPrice.price,
