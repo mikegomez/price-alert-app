@@ -8,7 +8,12 @@ const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailS
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'https://cryptotrackeralerts.net';
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-this';
+
+if (!process.env.JWT_SECRET) {
+  console.error('❌ Missing required environment variable: JWT_SECRET');
+  process.exit(1);
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Register endpoint
 router.post('/register', async (req, res) => {

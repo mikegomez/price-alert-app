@@ -20,7 +20,9 @@ const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',
   'http://cryptotrackeralerts.net',
-  'https://cryptotrackeralerts.net'
+  'https://cryptotrackeralerts.net',
+  'http://www.cryptotrackeralerts.net',
+  'https://www.cryptotrackeralerts.net'
 ];
 
 // Middleware
@@ -29,7 +31,9 @@ app.use(cors({
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      // Reject without throwing - an Error here becomes an uncaught 500
+      // instead of a clean CORS block.
+      callback(null, false);
     }
   },
   credentials: true,
