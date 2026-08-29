@@ -3,38 +3,19 @@ const axios = require('axios');
 const { dbHelpers } = require('../database/db');
 const { sendAlertEmail } = require('./emailService');
 
-// CoinGecko API - Free tier allows 10-50 calls per minute
-const COINGECKO_API_BASE = 'https://api.coingecko.com/api/v3';
+// CoinMarketCap API - Basic (free) tier: 10,000 credits/month, ~30 req/minute, 333 calls/day
+const CMC_API_BASE = 'https://pro-api.coinmarketcap.com/v1';
+const CMC_API_KEY = process.env.COINMARKETCAP_API_KEY;
 
 // Rate limiting - track API calls
 let apiCallCount = 0;
 let lastResetTime = Date.now();
-const MAX_CALLS_PER_MINUTE = 10; // Conservative limit for free tier
+const MAX_CALLS_PER_MINUTE = 20; // Stay safely under CMC Basic's ~30/minute
 const RATE_LIMIT_WINDOW = 60 * 1000; // 1 minute in milliseconds
 
 // In-memory cache for prices (fallback if database cache fails)
 const priceCache = new Map();
 const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
-
-// Common crypto symbol mappings (symbol -> CoinGecko ID)
-const CRYPTO_ID_MAP = {
-  'BTC': 'bitcoin',
-  'ETH': 'ethereum',
-  'BNB': 'binancecoin',
-  'XRP': 'ripple',
-  'ADA': 'cardano',
-  'DOGE': 'dogecoin',
-  'SOL': 'solana',
-  'DOT': 'polkadot',
-  'AVAX': 'avalanche-2',
-  'LINK': 'chainlink',
-  'MATIC': 'matic-network',
-  'UNI': 'uniswap',
-  'ATOM': 'cosmos',
-  'LTC': 'litecoin',
-  'BCH': 'bitcoin-cash'
-};
 
 // Get crypto price from CoinGecko
 // const getCryptoPrice = async (symbol) => {
@@ -256,68 +237,28 @@ const getCryptoPrice = async (symbol) => {
     
     // 3. Wait for rate limit before making API call
     await waitForRateLimit();
-    
-    // Convert symbol to CoinGecko ID
-    let coinId = CRYPTO_ID_MAP[normalizedSymbol];
-    
-    if (!coinId) {
-      // For unknown symbols, try a few common variations
-      const commonVariations = [
-        symbol.toLowerCase(),
-        symbol.toLowerCase() + '-2',
-        symbol.toLowerCase() + 'coin'
-      ];
-      
-      console.log(`[getCryptoPrice] Symbol ${symbol} not in map, trying common variations...`);
-      
-      // Try each variation without using search API (to save rate limits)
-      for (const variation of commonVariations) {
-        try {
-          await waitForRateLimit();
-          apiCallCount++;
-          
-          const testResponse = await axios.get(`${COINGECKO_API_BASE}/simple/price`, {
-            params: {
-              ids: variation,
-              vs_currencies: 'usd'
-            },
-            timeout: 10000
-          });
-          
-          if (testResponse.data[variation]?.usd) {
-            coinId = variation;
-            console.log(`[getCryptoPrice] Found working variation: ${variation}`);
-            break;
-          }
-        } catch (e) {
-          // Continue to next variation
-        }
-      }
-      
-      if (!coinId) {
-        throw new Error(`Cryptocurrency ${symbol} not found. Try common symbols like BTC, ETH, etc.`);
-      }
-    }
-    
-    // 4. Make the API call
-    console.log(`[getCryptoPrice] Making API call for ${symbol} (${coinId})...`);
-    await waitForRateLimit();
+
+    // 4. Make the API call - CMC looks coins up directly by symbol, no ID mapping needed
+    console.log(`[getCryptoPrice] Making API call for ${symbol}...`);
     apiCallCount++;
-    
-    const priceResponse = await axios.get(`${COINGECKO_API_BASE}/simple/price`, {
+
+    const priceResponse = await axios.get(`${CMC_API_BASE}/cryptocurrency/quotes/latest`, {
       params: {
-        ids: coinId,
-        vs_currencies: 'usd'
+        symbol: normalizedSymbol,
+        convert: 'USD'
+      },
+      headers: {
+        'X-CMC_PRO_API_KEY': CMC_API_KEY,
+        'Accept': 'application/json'
       },
       timeout: 15000
     });
-    
-    const coinData = priceResponse.data[coinId];
-    if (!coinData?.usd && coinData?.usd !== 0) {
+
+    const price = extractCmcPrice(priceResponse.data, normalizedSymbol);
+    if (price === null) {
       throw new Error(`No price data returned for ${symbol}`);
     }
-    
-    const price = coinData.usd;
+
     console.log(`[getCryptoPrice] API call successful: ${symbol} = $${price}`);
     
     // 5. Cache the result
@@ -388,51 +329,58 @@ const getCryptoPrice = async (symbol) => {
   }
 };
 
-// Batch fetch multiple prices (more efficient)
+// Extract a USD price from a CMC quotes/latest response for one symbol.
+// CMC returns an object per symbol normally, but an array when multiple
+// listed coins share the same ticker - in that case we take the first
+// (highest-ranked / most liquid) match.
+const extractCmcPrice = (responseData, symbol) => {
+  let entry = responseData?.data?.[symbol];
+  if (Array.isArray(entry)) entry = entry[0];
+  const price = entry?.quote?.USD?.price;
+  return typeof price === 'number' ? price : null;
+};
+
+// Batch fetch multiple prices (more efficient - one request for many symbols)
 const getBatchPrices = async (symbols) => {
   if (!symbols.length) return {};
-  
+
   try {
-    // Convert all symbols to coin IDs
-    const coinIds = symbols
-      .map(symbol => CRYPTO_ID_MAP[symbol.toUpperCase()])
-      .filter(id => id); // Remove undefined values
-    
-    if (!coinIds.length) {
-      console.log('[getBatchPrices] No valid coin IDs found');
-      return {};
-    }
-    
+    const upperSymbols = [...new Set(symbols.map(s => s.toUpperCase()))];
+
     await waitForRateLimit();
     apiCallCount++;
-    
-    console.log(`[getBatchPrices] Fetching batch prices for: ${coinIds.join(', ')}`);
-    
-    const response = await axios.get(`${COINGECKO_API_BASE}/simple/price`, {
+
+    console.log(`[getBatchPrices] Fetching batch prices for: ${upperSymbols.join(', ')}`);
+
+    const response = await axios.get(`${CMC_API_BASE}/cryptocurrency/quotes/latest`, {
       params: {
-        ids: coinIds.join(','),
-        vs_currencies: 'usd'
+        symbol: upperSymbols.join(','),
+        convert: 'USD'
+      },
+      headers: {
+        'X-CMC_PRO_API_KEY': CMC_API_KEY,
+        'Accept': 'application/json'
       },
       timeout: 15000
     });
-    
-    // Convert back to symbol-based object
+
     const prices = {};
-    Object.entries(CRYPTO_ID_MAP).forEach(([symbol, coinId]) => {
-      if (response.data[coinId]?.usd) {
-        prices[symbol] = response.data[coinId].usd;
-        
+    upperSymbols.forEach((symbol) => {
+      const price = extractCmcPrice(response.data, symbol);
+      if (price !== null) {
+        prices[symbol] = price;
+
         // Cache the result
         priceCache.set(symbol, {
-          price: response.data[coinId].usd,
+          price: price,
           timestamp: Date.now()
         });
       }
     });
-    
+
     console.log(`[getBatchPrices] Successfully fetched ${Object.keys(prices).length} prices`);
     return prices;
-    
+
   } catch (error) {
     console.error('[getBatchPrices] Error:', error.message);
     return {};
