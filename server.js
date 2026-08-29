@@ -16,6 +16,10 @@ const { startPriceChecker, startKeepAlive } = require('./services/priceChecker')
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Render sits behind a reverse proxy - without this, req.ip resolves to the
+// proxy's address for every request, breaking IP-based rate limiting.
+app.set('trust proxy', 1);
+
 const allowedOrigins = [
   'http://localhost:3000',
   'http://localhost:3001',

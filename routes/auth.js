@@ -1,9 +1,35 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto'); // ADD THIS MISSING IMPORT
 const { dbHelpers } = require('../database/db');
 const { sendWelcomeEmail, sendPasswordResetEmail } = require('../services/emailService'); // ADD sendPasswordResetEmail
+
+// Brute-force / abuse protection for auth endpoints
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many login attempts. Please try again later.' },
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many accounts created from this IP. Please try again later.' },
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many password reset requests. Please try again later.' },
+});
 
 const FRONTEND_BASE_URL = process.env.FRONTEND_BASE_URL || 'https://cryptotrackeralerts.net';
 
@@ -16,7 +42,7 @@ if (!process.env.JWT_SECRET) {
 const JWT_SECRET = process.env.JWT_SECRET;
 
 // Register endpoint
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -60,7 +86,7 @@ router.post('/register', async (req, res) => {
 });
 
 // Login endpoint
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -150,20 +176,8 @@ router.post('/resend-email', async (req, res) => {
   }
 });
 
-// GET /api/auth/test-email — temporary debug endpoint
-router.get('/test-email', async (req, res) => {
-  try {
-    const { sendPasswordResetEmail } = require('../services/emailService');
-    const testAddr = req.query.to || process.env.EMAIL_USER;
-    await sendPasswordResetEmail(testAddr, 'https://cryptotrackeralerts.net/login?token=test');
-    res.json({ success: true, message: `Test email sent to ${testAddr}` });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message, code: err.code });
-  }
-});
-
 // POST /api/auth/forgot-password
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', forgotPasswordLimiter, async (req, res) => {
   try {
     const { email } = req.body;
     if (!email) return res.status(400).json({ error: 'Email is required' });
