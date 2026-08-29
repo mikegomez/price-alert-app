@@ -1,9 +1,19 @@
 const { Resend } = require('resend');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = `Crypto Tracker Alerts <${process.env.EMAIL_FROM || 'noreply@cryptotrackeralerts.net'}>`;
 
+let resend = null;
+if (process.env.RESEND_API_KEY) {
+  resend = new Resend(process.env.RESEND_API_KEY);
+} else {
+  console.error('[emailService] RESEND_API_KEY is not set — emails will not be sent.');
+}
+
 const sendAlertEmail = async (email, symbol, currentPrice, targetPrice, alertType) => {
+  if (!resend) {
+    console.error('Cannot send alert email: Resend client not configured (missing RESEND_API_KEY)');
+    return;
+  }
   try {
     const { error } = await resend.emails.send({
       from: FROM,
@@ -28,6 +38,10 @@ const sendAlertEmail = async (email, symbol, currentPrice, targetPrice, alertTyp
 };
 
 const sendWelcomeEmail = async (email) => {
+  if (!resend) {
+    console.error('Cannot send welcome email: Resend client not configured (missing RESEND_API_KEY)');
+    return;
+  }
   try {
     const { error } = await resend.emails.send({
       from: FROM,
@@ -51,6 +65,9 @@ const sendWelcomeEmail = async (email) => {
 };
 
 const sendPasswordResetEmail = async (email, resetUrl) => {
+  if (!resend) {
+    throw new Error('Resend client not configured (missing RESEND_API_KEY)');
+  }
   const { error } = await resend.emails.send({
     from: FROM,
     to: email,
