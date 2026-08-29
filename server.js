@@ -4,7 +4,7 @@ const path = require('path');
 require('dotenv').config();
 
 const { initializeDB } = require('./database/db');
-initializeDB().then(() => console.log('✅ MySQL initialized'));
+initializeDB().then(() => console.log('✅ Postgres initialized'));
 const { router: authRoutes } = require('./routes/auth');
 
 const alertRoutes = require('./routes/alerts');

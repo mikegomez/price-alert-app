@@ -161,26 +161,15 @@ router.post('/sell/:id', verifyToken, async (req, res) => {
     // Check if position exists and belongs to user
     const portfolio = await dbHelpers.getUserPortfolio(userId);
     const position = portfolio.find(p => p.id == positionId && !p.is_sold);
-    
+
     if (!position) {
-      return res.status(404).json({ 
-        error: 'Position not found or already sold' 
+      return res.status(404).json({
+        error: 'Position not found or already sold'
       });
     }
-    
+
     // Mark position as sold
-    await new Promise((resolve, reject) => {
-      require('../database/db').db.run(
-        `UPDATE portfolio 
-         SET is_sold = 1, sold_price = ?, sold_date = CURRENT_TIMESTAMP 
-         WHERE id = ? AND user_id = ?`,
-        [soldPrice, positionId, userId],
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    });
+    await dbHelpers.sellFromPortfolio(positionId, userId, soldPrice);
     
     // Calculate P&L
     const purchaseValue = position.shares * position.purchase_price;
@@ -285,20 +274,8 @@ router.get('/history', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const limit = Math.min(parseInt(req.query.limit) || 50, 100);
-    
-    const history = await new Promise((resolve, reject) => {
-      require('../database/db').db.all(
-        `SELECT * FROM portfolio 
-         WHERE user_id = ? 
-         ORDER BY purchase_date DESC 
-         LIMIT ?`,
-        [userId, limit],
-        (err, rows) => {
-          if (err) reject(err);
-          else resolve(rows);
-        }
-      );
-    });
+
+    const history = await dbHelpers.getPortfolioHistory(userId, limit);
     
     // Add P&L calculations to history
     const historyWithPnL = history.map(trade => {
@@ -347,22 +324,13 @@ router.delete('/:id', verifyToken, async (req, res) => {
     }
     
     if (position.is_sold) {
-      return res.status(400).json({ 
-        error: 'Cannot delete sold positions. They are part of your trading history.' 
+      return res.status(400).json({
+        error: 'Cannot delete sold positions. They are part of your trading history.'
       });
     }
-    
+
     // Delete the position
-    await new Promise((resolve, reject) => {
-      require('../database/db').db.run(
-        'DELETE FROM portfolio WHERE id = ? AND user_id = ?',
-        [positionId, userId],
-        (err) => {
-          if (err) reject(err);
-          else resolve();
-        }
-      );
-    });
+    await dbHelpers.deletePortfolioPosition(positionId, userId);
     
     res.json({ message: 'Position deleted successfully' });
     

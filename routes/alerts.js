@@ -161,7 +161,7 @@ router.put('/:id', verifyToken, async (req, res) => {
         const updateData = {};
         if (targetPrice !== undefined) updateData.target_price = targetPrice;
         if (alertType !== undefined) updateData.alert_type = alertType;
-        if (isActive !== undefined) updateData.is_active = isActive ? 1 : 0; // Assuming boolean to integer conversion for DB
+        if (isActive !== undefined) updateData.is_active = isActive;
 
         if (Object.keys(updateData).length === 0) {
             return res.status(400).json({ error: 'No valid fields provided for update' });
